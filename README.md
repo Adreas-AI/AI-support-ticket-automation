@@ -1,14 +1,6 @@
-# AI Support Ticket Automation API
+# 🤖 AI Support Ticket Automation System
 
-This project is a lightweight FastAPI backend that automates customer support ticket handling using AI.
-
-It allows creating support tickets through an API, automatically analyzes them with OpenAI to determine priority, category, summary, and a suggested reply, and stores everything in a SQLite database. The system also provides endpoints to retrieve, list, and update tickets, making it suitable for automation workflows (e.g., Zapier integrations) or internal support tools.
-
-Built with:
-- FastAPI
-- OpenAI API
-- SQLite
-- Python
+This project is a backend system built with FastAPI that automates the processing of customer support tickets using AI. When a ticket is created, it is immediately stored and then sent to a RabbitMQ queue for asynchronous processing by a background worker. The worker uses AI to analyze the ticket content and generates structured insights such as category, priority level, a short summary, and a suggested reply to the customer. All results are saved in a SQLite database and can be retrieved or updated through REST API endpoints. The system is designed with a clean, modular architecture and demonstrates real-world backend engineering concepts such as event-driven processing, message queues, and AI-powered automation.
 
 Run locally:
 python -m uvicorn app.main:app --reload
