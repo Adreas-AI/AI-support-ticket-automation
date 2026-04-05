@@ -1,20 +1,15 @@
 """
 FastAPI entrypoint for AI Support Ticket Automation.
-
-Responsibilities:
-- Start FastAPI app
-- Ensure database is initialized
-- Provide basic health endpoint
-
-Run locally:
-    uvicorn app.main:app --reload
 """
 
-from fastapi import FastAPI
-from app.db import init_db
-from app.db import get_connection
-from app.models import TicketCreate, TicketOut, TicketUpdate
+from typing import List
+
+from fastapi import FastAPI, HTTPException, Query
+
 from app.ai import analyze_ticket
+from app.db import get_connection, init_db
+from app.models import TicketCreate, TicketOut, TicketUpdate
+from app.rabbitmq_client import send_message
 
 
 app = FastAPI(
@@ -25,34 +20,25 @@ app = FastAPI(
 
 @app.on_event("startup")
 def startup_event():
-    """
-    Runs when API starts.
-    Ensures SQLite DB + tables exist.
-    """
     init_db()
 
 
 @app.get("/")
 def health_check():
-    """
-    Basic health endpoint to confirm API is running.
-    """
     return {
         "status": "ok",
         "service": "AI Support Ticket Automation API"
     }
-@app.post("/tickets", response_model=TicketOut)
 
+
+@app.post("/tickets", response_model=TicketOut)
 def create_ticket(ticket: TicketCreate):
-    """
-    Create a new support ticket, analyze with AI, store in SQLite.
-    """
+    print("create_ticket hit")
 
     # ---- AI analysis ----
     try:
         ai_data = analyze_ticket(ticket.subject, ticket.body)
-    except Exception as e:
-        # fail gracefully if AI fails
+    except Exception:
         ai_data = {
             "priority": None,
             "category": None,
@@ -97,15 +83,19 @@ def create_ticket(ticket: TicketCreate):
             (ticket_id,),
         ).fetchone()
 
+    # 👇 ΕΔΩ είναι σωστά το RabbitMQ
+    send_message({
+        "ticket_id": ticket_id,
+        "subject": ticket.subject,
+        "body": ticket.body,
+        "email": ticket.customer_email
+    })
+
     return dict(row)
 
-from fastapi import HTTPException
 
 @app.get("/tickets/{ticket_id}", response_model=TicketOut)
 def get_ticket(ticket_id: int):
-    """
-    Fetch a ticket by id.
-    """
     with get_connection() as conn:
         row = conn.execute(
             "SELECT * FROM tickets WHERE id = ?",
@@ -117,8 +107,6 @@ def get_ticket(ticket_id: int):
 
     return dict(row)
 
-from typing import List
-from fastapi import Query
 
 @app.get("/tickets", response_model=List[TicketOut])
 def list_tickets(
@@ -126,10 +114,6 @@ def list_tickets(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """
-    List tickets with optional status filter + pagination.
-    Useful for Zapier polling.
-    """
     query = "SELECT * FROM tickets"
     params: list = []
 
@@ -145,14 +129,9 @@ def list_tickets(
 
     return [dict(r) for r in rows]
 
+
 @app.patch("/tickets/{ticket_id}", response_model=TicketOut)
 def update_ticket(ticket_id: int, patch: TicketUpdate):
-
-
-    """
-    Partially update a ticket (status/priority/category/summary/suggested_reply).
-    """
-
     updates = []
     params = []
 
@@ -162,8 +141,7 @@ def update_ticket(ticket_id: int, patch: TicketUpdate):
         params.append(value)
 
     if not updates:
-        # nothing to update
-        raise HTTPException(status_code=400, detail="No fields provided to update")
+        raise HTTPException(status_code=400, detail="No fields provided")
 
     params.append(ticket_id)
 
